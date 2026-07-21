@@ -119,6 +119,23 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
         self.assertIn("多头排列必须条件", prompt)
         self.assertIn("多头排列：MA5 > MA10 > MA20", prompt)
 
+    def test_analysis_prompt_requires_phase_decision_in_main_and_legacy_modes(self) -> None:
+        for legacy in (False, True):
+            with patch.object(GeminiAnalyzer, "_init_litellm", return_value=None):
+                analyzer = GeminiAnalyzer(
+                    skill_instructions="",
+                    default_skill_policy="",
+                    use_legacy_default_prompt=legacy,
+                )
+
+            prompt = analyzer._get_analysis_system_prompt("zh", stock_code="600519")
+
+            self.assertIn('"phase_decision"', prompt)
+            self.assertIn('"watch_conditions"', prompt)
+            self.assertIn('"data_limitations"', prompt)
+            self.assertIn("quote/daily_bars/technical 存在 stale、fallback、missing、fetch_failed、partial 或 estimated", prompt)
+            self.assertIn("`confidence_level` 不得为高", prompt)
+
     def test_analysis_prompt_contains_actionability_guardrails(self) -> None:
         with patch.object(GeminiAnalyzer, "_init_litellm", return_value=None):
             analyzer = GeminiAnalyzer()
@@ -129,6 +146,24 @@ class AnalyzerNewsPromptTestCase(unittest.TestCase):
         self.assertIn("不得仅因为单日涨跌", prompt)
         self.assertIn("支撑/压力位", prompt)
         self.assertIn("洗盘观察", prompt)
+
+    def test_analysis_prompt_score_scale_splits_reduce_and_sell_bands(self) -> None:
+        for legacy in (False, True):
+            with self.subTest(legacy=legacy):
+                with patch.object(GeminiAnalyzer, "_init_litellm", return_value=None):
+                    analyzer = GeminiAnalyzer(
+                        skill_instructions="",
+                        default_skill_policy="",
+                        use_legacy_default_prompt=legacy,
+                    )
+
+                prompt = analyzer._get_analysis_system_prompt("zh", stock_code="600519")
+
+                self.assertIn("### 减仓（20-39分）", prompt)
+                self.assertIn("### 卖出（0-19分）", prompt)
+                self.assertIn("20-39：减仓，`action=reduce`，`decision_type=sell`。", prompt)
+                self.assertIn("0-19：卖出，`action=sell`，`decision_type=sell`。", prompt)
+                self.assertNotIn("### 卖出/减仓（0-39分）", prompt)
 
     def test_prompt_contains_time_constraints(self) -> None:
         with patch.object(GeminiAnalyzer, "_init_litellm", return_value=None):
